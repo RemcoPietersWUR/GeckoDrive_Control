@@ -37,6 +37,11 @@ volatile unsigned long pulseCount = 0;
 unsigned long copypulseCount = 0;
 int pulseMode = false;
 
+//Status
+char* stat_dir[] = {"CW","CCW"};
+int index_dir = 0;
+int stat_motor = 0;
+
 const int debug = true;
 
 
@@ -51,6 +56,8 @@ void setup() {
   //Set up digital pins
   pinMode(standbyPin, OUTPUT);
   pinMode(directionPin, OUTPUT);
+  digitalWrite(standbyPin, HIGH);
+  delay(10);
 }
 
 void pulseMotor(void)
@@ -59,19 +66,21 @@ void pulseMotor(void)
 }
 
 void loop() {
-  if(pulseMode == true){
-      noInterrupts();
-      copypulseCount = pulseCount;
-      interrupts();
-      Serial.println(copypulseCount);
-      if(copypulseCount>steps){
+  if (pulseMode == true && stat_motor == 1) {
+    noInterrupts();
+    copypulseCount = pulseCount;
+    interrupts();
+    //Serial.println(copypulseCount);
+    if (copypulseCount > steps) {
       Timer1.stop();
       Timer1.detachInterrupt();
       pulseMode = false;
-     }
+      digitalWrite(standbyPin, HIGH);
+      delay(10);
     }
+  }
 
-  
+
   //Recieve serial commands
   if (Serial.available() > 0) {
     char recieved = Serial.read();
@@ -84,73 +93,99 @@ void loop() {
         Serial.println(inData);
       }
 
-      //Process recieved command
-      //Rotation direction
-      if (inData.startsWith("dir")) {
-        if (inData.substring(4) == "cw\n") {
-          //set direction pin high
-          digitalWrite(directionPin, HIGH);
+      if (pulseMode == false) {
+        //Process recieved command
+        //Rotation direction
+        if (inData.startsWith("dir")) {
+          if (inData.substring(4) == "cw\n") {
+            //set direction pin high
+            digitalWrite(directionPin, HIGH);
+            index_dir = 0;
+            if (debug == true) {
+              Serial.println("Direction CW");
+            }
+          }
+          if (inData.substring(4) == "ccw\n") {
+            //set direction pin low
+            digitalWrite(directionPin, LOW);
+            index_dir = 1;
+            if (debug == true) {
+              Serial.println("Direction CCW");
+            }
+          }
+          //Rotation speed, period of pulse train
+        }
+        if (inData.startsWith("speed")) {
+          //set period of timer in microseconds
+          String temp_period = inData.substring(6, inData.length() - 1);
+          period = temp_period.toInt();
+          Timer1.setPeriod(period);
+          Timer1.setPwmDuty(pulsePin, 512);
+          Timer1.stop(); //motor stops after speed change
           if (debug == true) {
-            Serial.println("Direction CW");
+            Serial.print("Speed : ");
+            Serial.println(period);
           }
         }
-        if (inData.substring(4) == "ccw\n") {
-          //set direction pin low
-          digitalWrite(directionPin, LOW);
+        //Motor steps
+        if (inData.startsWith("steps")) {
+          String temp_steps = inData.substring(6, inData.length() - 1);
+          steps = temp_steps.toInt();
           if (debug == true) {
-            Serial.println("Direction CCW");
+            Serial.print("Steps : ");
+            Serial.println(steps);
           }
-        }
-        //Rotation speed, period of pulse train
-      }
-      if (inData.startsWith("speed")) {
-        //set period of timer in microseconds
-        String temp_period = inData.substring(6, inData.length() - 1);
-        period = temp_period.toInt();
-        Timer1.setPeriod(period);
-        Timer1.setPwmDuty(pulsePin,512);
-        Timer1.stop(); //motor stops after speed change
-        if (debug == true) {
-          Serial.print("Speed : ");
-          Serial.println(period);
-        }
-      }
-      //Motor steps
-      if (inData.startsWith("steps")) {
-        String temp_steps = inData.substring(6, inData.length() - 1);
-        steps = temp_steps.toInt();
-        if (debug == true) {
-          Serial.print("Steps : ");
-          Serial.println(steps);
-        }
-        //Start with pulseCount at zero
-        pulseCount = 0;
-        pulseMode = true;
-        Timer1.attachInterrupt(pulseMotor);
-        Timer1.start();
+          //Start with pulseCount at zero
+          pulseCount = 0;
+          pulseMode = true;
+          Timer1.attachInterrupt(pulseMotor);
+          Timer1.start();
 
+        }
       }
       //Start/stop motor
       if (inData.startsWith("motor")) {
         if (inData.substring(6) == "start\n") {
           //Start timer
+          digitalWrite(standbyPin, LOW);
+          stat_motor = 1;
+          delay(10);
           Timer1.start();
           if (debug == true) {
             Serial.println("START");
           }
         }
         if (inData.substring(6) == "stop\n") {
-          //Start timer
+          //Stop timer
           Timer1.stop();
+          digitalWrite(standbyPin, HIGH);
+          stat_motor = 0;
+          delay(10);
           if (debug == true) {
             Serial.println("STOP");
           }
         }
       }
+      //Status
+      if (inData.startsWith("stat")) {
+        //Give status of motor
+        Serial.print("Motor status: ");
+        Serial.print("Motor ");
+        Serial.print(stat_motor);
+        Serial.print(", Set speed: ");
+        Serial.print(period);
+        Serial.print(", Set direction: ");
+        Serial.print(stat_dir[index_dir]);
+        Serial.print(", Step position: ");
+        Serial.println(copypulseCount);
+        if (debug == true) {
+          Serial.println("Status");
+        }
+      }
       inData = ""; // Clear recieved buffer
- 
 
-  }
+
+    }
   }
 
 }
